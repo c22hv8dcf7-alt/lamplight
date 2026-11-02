@@ -1,0 +1,1622 @@
+'use strict';
+const __modules = Object.create(null);
+const __cache = Object.create(null);
+function __define(p, fn) { __modules[p] = fn; }
+function __require(p) {
+  if (__cache[p]) return __cache[p].exports;
+  if (!__modules[p]) throw new Error('wick bundle: module not found: ' + p);
+  const m = { exports: {} };
+  __cache[p] = m;
+  __modules[p](m.exports, __require);
+  return m.exports;
+}
+__define("src/index.js", function (__exports, __require) {
+
+/**
+ * Wick Engine — public entry point.
+ * Every module is independent; games may import the whole surface from here
+ * or reach for single modules (the bundler only ships what the graph uses...
+ * in v0.1 it ships what you import — import from here for the full kit).
+ */
+const { createLoop, SPEED_TIERS } = __require("src/core.js");
+const { Renderer, Sheet, Animation } = __require("src/renderer.js");
+const { makeSprite, drawSprite, spriteSize, clearSpriteCache } = __require("src/sprites.js");
+const { WorldClock, DEFAULT_SEASONS } = __require("src/clock.js");
+const { Weather, DEFAULT_WEATHER } = __require("src/weather.js");
+const { Chronicle } = __require("src/chronicle.js");
+const { World, wander, follow, seek, flee } = __require("src/entities.js");
+const { Input, touchButtons, Channel, DEFAULT_BINDINGS } = __require("src/input.js");
+const { Chips, GaugePanel, gauge, Prompt, Dialogue, Objectives } = __require("src/ui.js");
+const { Wallet, Stock } = __require("src/economy.js");
+const { ShopPanel } = __require("src/shop.js");
+const { SaveSystem, SAVE_VERSION } = __require("src/save.js");
+const { AudioKit } = __require("src/audio.js");
+
+__exports.createLoop = createLoop;
+__exports.SPEED_TIERS = SPEED_TIERS;
+__exports.Renderer = Renderer;
+__exports.Sheet = Sheet;
+__exports.Animation = Animation;
+__exports.makeSprite = makeSprite;
+__exports.drawSprite = drawSprite;
+__exports.spriteSize = spriteSize;
+__exports.clearSpriteCache = clearSpriteCache;
+__exports.WorldClock = WorldClock;
+__exports.DEFAULT_SEASONS = DEFAULT_SEASONS;
+__exports.Weather = Weather;
+__exports.DEFAULT_WEATHER = DEFAULT_WEATHER;
+__exports.Chronicle = Chronicle;
+__exports.World = World;
+__exports.wander = wander;
+__exports.follow = follow;
+__exports.seek = seek;
+__exports.flee = flee;
+__exports.Input = Input;
+__exports.touchButtons = touchButtons;
+__exports.Channel = Channel;
+__exports.DEFAULT_BINDINGS = DEFAULT_BINDINGS;
+__exports.Chips = Chips;
+__exports.GaugePanel = GaugePanel;
+__exports.gauge = gauge;
+__exports.Prompt = Prompt;
+__exports.Dialogue = Dialogue;
+__exports.Objectives = Objectives;
+__exports.Wallet = Wallet;
+__exports.Stock = Stock;
+__exports.ShopPanel = ShopPanel;
+__exports.SaveSystem = SaveSystem;
+__exports.SAVE_VERSION = SAVE_VERSION;
+__exports.AudioKit = AudioKit;
+});
+__define("src/core.js", function (__exports, __require) {
+
+/**
+ * @module core
+ * The game loop: a fixed-timestep simulation tick decoupled from rendering.
+ *
+ * Extracted from the pattern shared by World Simulator, The Living Reef and
+ * The Last Lighthouse: the world advances in fixed sim steps (so behaviour is
+ * identical at any frame rate), rendering happens every animation frame, and
+ * the player can pause or change speed in tiers (0.5x / 1x / 2x / 4x).
+ */
+
+const SPEED_TIERS = [0.5, 1, 2, 4];
+
+/**
+ * Create and start a game loop.
+ *
+ * @param {object} opts
+ * @param {(dt: number) => void} opts.tick   Fixed-step simulation update. dt is always `step` seconds.
+ * @param {(alpha: number) => void} opts.draw Render callback; alpha is interpolation remainder (0..1).
+ * @param {number} [opts.step]  Fixed sim step in seconds (default 1/30).
+ * @param {number} [opts.speed] Initial speed multiplier; snapped to SPEED_TIERS.
+ * @returns {{
+ *   pause(): void, resume(): void, togglePause(): void,
+ *   setSpeed(n: number): number, cycleSpeed(): number,
+ *   readonly paused: boolean, readonly speed: number,
+ *   readonly simTime: number, stop(): void
+ * }}
+ */
+function createLoop({ tick, draw, step = 1 / 30, speed = 1 }) {
+  let raf = 0;
+  let last = 0;
+  let acc = 0;
+  let simTime = 0;
+  let paused = false;
+  let currentSpeed = SPEED_TIERS.includes(speed) ? speed : 1;
+
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    if (!last) last = now;
+    // Clamp the frame delta so a backgrounded tab doesn't fast-forward.
+    let delta = Math.min((now - last) / 1000, 0.25);
+    last = now;
+    if (!paused) {
+      acc += delta * currentSpeed;
+      // Spiral-of-death guard: never run more than 8 steps in one frame.
+      let steps = 0;
+      while (acc >= step && steps < 8) {
+        tick(step);
+        simTime += step;
+        acc -= step;
+        steps++;
+      }
+      if (steps === 8) acc = 0;
+    }
+    draw(acc / step);
+  }
+  raf = requestAnimationFrame(frame);
+
+  return {
+    pause() { paused = true; },
+    resume() { paused = false; },
+    togglePause() { paused = !paused; return paused; },
+    setSpeed(n) {
+      if (SPEED_TIERS.includes(n)) currentSpeed = n;
+      return currentSpeed;
+    },
+    cycleSpeed() {
+      const i = SPEED_TIERS.indexOf(currentSpeed);
+      currentSpeed = SPEED_TIERS[(i + 1) % SPEED_TIERS.length];
+      return currentSpeed;
+    },
+    get paused() { return paused; },
+    get speed() { return currentSpeed; },
+    get simTime() { return simTime; },
+    stop() { cancelAnimationFrame(raf); },
+  };
+}
+
+__exports.SPEED_TIERS = SPEED_TIERS;
+__exports.createLoop = createLoop;
+});
+__define("src/renderer.js", function (__exports, __require) {
+
+/**
+ * @module renderer
+ * Canvas 2D rendering tuned for pixel art: smoothing off by default, sprite
+ * sheets with frame animation, a simple camera, and z-ordered drawing.
+ *
+ * Every shipped Porch Light web game is a single canvas with crisp pixels —
+ * this module is that canvas, codified.
+ */
+
+/**
+ * A sprite sheet: one image cut into a grid of equal frames.
+ */
+class Sheet {
+  /**
+   * @param {CanvasImageSource} image
+   * @param {number} frameW frame width in source pixels
+   * @param {number} frameH frame height in source pixels
+   */
+  constructor(image, frameW, frameH) {
+    this.image = image;
+    this.frameW = frameW;
+    this.frameH = frameH;
+    this.cols = Math.floor(image.width / frameW);
+  }
+  /** Number of frames in the sheet. */
+  get frames() { return this.cols * Math.floor(this.image.height / this.frameH); }
+}
+
+/**
+ * Frame animation over a Sheet: a named or indexed sequence at a rate.
+ */
+class Animation {
+  /**
+   * @param {Sheet} sheet
+   * @param {number[]} frames frame indices to cycle
+   * @param {number} [fps] frames per second
+   */
+  constructor(sheet, frames, fps = 8) {
+    this.sheet = sheet;
+    this.frames = frames;
+    this.fps = fps;
+    this.t = 0;
+  }
+  update(dt) { this.t += dt; }
+  /** Current frame index into the sheet. */
+  get frame() {
+    const i = Math.floor(this.t * this.fps) % this.frames.length;
+    return this.frames[i];
+  }
+  reset() { this.t = 0; }
+}
+
+/**
+ * The renderer. Owns the 2D context, the camera, and a per-frame draw list
+ * so games can submit sprites in any order and have them sorted by z.
+ */
+class Renderer {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {{ pixelPerfect?: boolean }} [opts] pixelPerfect (default true) disables smoothing.
+   */
+  constructor(canvas, { pixelPerfect = true } = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.pixelPerfect = pixelPerfect;
+    /** Camera offset in world units. */
+    this.camera = { x: 0, y: 0 };
+    /** @type {Array<{z: number, fn: (ctx: CanvasRenderingContext2D) => void}>} */
+    this._queue = [];
+    this._applySmoothing();
+  }
+  _applySmoothing() { this.ctx.imageSmoothingEnabled = !this.pixelPerfect; }
+  get width() { return this.canvas.width; }
+  get height() { return this.canvas.height; }
+
+  /** Clear the frame with a colour. */
+  clear(color = '#000') {
+    const { ctx } = this;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.restore();
+  }
+
+  /**
+   * Queue a draw call at layer z (lower draws first). Flushed by endFrame().
+   * Inside fn, coordinates are world coordinates (camera applied).
+   * @param {number} z
+   * @param {(ctx: CanvasRenderingContext2D) => void} fn
+   */
+  draw(z, fn) { this._queue.push({ z, fn }); }
+
+  /** Draw immediately in screen space (no camera) — for weather overlays, vignettes. */
+  drawScreen(fn) {
+    const { ctx } = this;
+    ctx.save();
+    fn(ctx);
+    ctx.restore();
+  }
+
+  /** Flush the queued draw list with the camera applied. */
+  endFrame() {
+    const { ctx } = this;
+    this._queue.sort((a, b) => a.z - b.z);
+    ctx.save();
+    ctx.translate(-Math.round(this.camera.x), -Math.round(this.camera.y));
+    for (const item of this._queue) item.fn(ctx);
+    ctx.restore();
+    this._queue.length = 0;
+    this._applySmoothing();
+  }
+
+  /**
+   * Draw one frame of a sheet at a world position.
+   * @param {Sheet} sheet @param {number} frame @param {number} x @param {number} y
+   * @param {{ scale?: number, flipX?: boolean, alpha?: number }} [opts]
+   */
+  blit(sheet, frame, x, y, { scale = 1, flipX = false, alpha = 1 } = {}) {
+    const { ctx } = this;
+    const sx = (frame % sheet.cols) * sheet.frameW;
+    const sy = Math.floor(frame / sheet.cols) * sheet.frameH;
+    const dw = sheet.frameW * scale;
+    const dh = sheet.frameH * scale;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (flipX) {
+      ctx.translate(Math.round(x) + dw, Math.round(y));
+      ctx.scale(-1, 1);
+      ctx.drawImage(sheet.image, sx, sy, sheet.frameW, sheet.frameH, 0, 0, dw, dh);
+    } else {
+      ctx.drawImage(sheet.image, sx, sy, sheet.frameW, sheet.frameH, Math.round(x), Math.round(y), dw, dh);
+    }
+    ctx.restore();
+  }
+
+  /** Centre the camera on a world point, clamped to optional bounds. */
+  follow(x, y, bounds) {
+    let cx = x - this.canvas.width / 2;
+    let cy = y - this.canvas.height / 2;
+    if (bounds) {
+      cx = Math.max(0, Math.min(cx, Math.max(0, bounds.w - this.canvas.width)));
+      cy = Math.max(0, Math.min(cy, Math.max(0, bounds.h - this.canvas.height)));
+    }
+    this.camera.x = cx;
+    this.camera.y = cy;
+  }
+}
+
+__exports.Sheet = Sheet;
+__exports.Animation = Animation;
+__exports.Renderer = Renderer;
+});
+__define("src/sprites.js", function (__exports, __require) {
+
+/**
+ * @module sprites
+ * Procedural pixel sprites, Pico-8 style: a sprite is an array of strings,
+ * one character per pixel, mapped through a palette to colours. '.' (or a
+ * character missing from the palette) is transparent.
+ *
+ * All three shipped games drew their creatures and props this way because it
+ * needs no asset pipeline: the art lives in the source, diffs cleanly, and
+ * ships inside the single file. Image-sheet support lives in renderer.Sheet.
+ */
+
+const cache = new Map();
+
+/**
+ * Build (or fetch from cache) an offscreen canvas for a string-map sprite.
+ *
+ * @param {string[]} rows e.g. ["..kk..", ".koop."] — one character per pixel.
+ * @param {Object<string, string>} palette char -> CSS colour
+ * @returns {HTMLCanvasElement}
+ */
+function makeSprite(rows, palette) {
+  const key = rows.join('\n') + '|' + JSON.stringify(palette);
+  if (cache.has(key)) return cache.get(key);
+  const h = rows.length;
+  const w = Math.max(...rows.map((r) => r.length));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  for (let y = 0; y < h; y++) {
+    const row = rows[y];
+    for (let x = 0; x < row.length; x++) {
+      const colour = palette[row[x]];
+      if (!colour) continue;
+      ctx.fillStyle = colour;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  cache.set(key, c);
+  return c;
+}
+
+/**
+ * Draw a string-map sprite with a renderer's context.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string[]} rows @param {Object<string,string>} palette
+ * @param {number} x @param {number} y
+ * @param {{ scale?: number, flipX?: boolean }} [opts]
+ */
+function drawSprite(ctx, rows, palette, x, y, { scale = 3, flipX = false } = {}) {
+  const img = makeSprite(rows, palette);
+  ctx.save();
+  if (flipX) {
+    ctx.translate(Math.round(x) + img.width * scale, Math.round(y));
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, img.width * scale, img.height * scale);
+  } else {
+    ctx.drawImage(img, Math.round(x), Math.round(y), img.width * scale, img.height * scale);
+  }
+  ctx.restore();
+}
+
+/**
+ * Pixel dimensions of a string-map sprite at a scale.
+ * @param {string[]} rows @param {number} [scale]
+ * @returns {{ w: number, h: number }}
+ */
+function spriteSize(rows, scale = 3) {
+  return { w: Math.max(...rows.map((r) => r.length)) * scale, h: rows.length * scale };
+}
+
+/** Empty the sprite cache (e.g. after a palette/theme swap). */
+function clearSpriteCache() { cache.clear(); }
+
+__exports.makeSprite = makeSprite;
+__exports.drawSprite = drawSprite;
+__exports.spriteSize = spriteSize;
+__exports.clearSpriteCache = clearSpriteCache;
+});
+__define("src/clock.js", function (__exports, __require) {
+
+/**
+ * @module clock
+ * The world clock: an endless day/night cycle with named phases and seasons.
+ *
+ * World Simulator ran past Year 11,980 on this pattern; The Living Reef ran
+ * 6,000 days on it. Time never ends; days roll over, seasons cycle, and games
+ * subscribe to day changes instead of polling.
+ */
+
+/** @typedef {{ name: string, days: number }} Season */
+
+/** Default temperate seasons: 7 days each, a 28-day year. Games may replace. */
+const DEFAULT_SEASONS = [
+  { name: 'Spring', days: 7 },
+  { name: 'Summer', days: 7 },
+  { name: 'Autumn', days: 7 },
+  { name: 'Winter', days: 7 },
+];
+
+/** Phase boundaries as fractions of the day (0 = midnight). */
+const PHASES = [
+  { name: 'Night', until: 0.21 },
+  { name: 'Dawn', until: 0.29 },
+  { name: 'Day', until: 0.71 },
+  { name: 'Dusk', until: 0.79 },
+  { name: 'Night', until: 1.01 },
+];
+
+class WorldClock {
+  /**
+   * @param {object} [opts]
+   * @param {number} [opts.dayLength] seconds per full day at 1x (default 120)
+   * @param {Season[]} [opts.seasons]
+   * @param {number} [opts.startDay]
+   * @param {number} [opts.startTime] 0..1 fraction of day (default 0.35, morning)
+   */
+  constructor({ dayLength = 120, seasons = DEFAULT_SEASONS, startDay = 1, startTime = 0.35 } = {}) {
+    this.dayLength = dayLength;
+    this.seasons = seasons;
+    this.day = startDay;
+    this.t = startTime;
+    /** @type {Array<(day: number, season: Season) => void>} */
+    this._dayListeners = [];
+    /** @type {Array<(season: Season, day: number) => void>} */
+    this._seasonListeners = [];
+    this._lastSeason = this.season.name;
+  }
+
+  /** Advance the clock. Call from the sim tick. @param {number} dt seconds */
+  update(dt) {
+    this.t += dt / this.dayLength;
+    while (this.t >= 1) {
+      this.t -= 1;
+      this.day++;
+      for (const fn of this._dayListeners) fn(this.day, this.season);
+      if (this.season.name !== this._lastSeason) {
+        this._lastSeason = this.season.name;
+        for (const fn of this._seasonListeners) fn(this.season, this.day);
+      }
+    }
+  }
+
+  /** Current phase name: Night | Dawn | Day | Dusk. */
+  get phase() {
+    for (const p of PHASES) if (this.t < p.until) return p.name;
+    return 'Night';
+  }
+
+  /** True between dusk and dawn. */
+  get isNight() { return this.t >= 0.79 || this.t < 0.21; }
+
+  /** Current season, derived from the day count. */
+  get season() {
+    const yearLen = this.seasons.reduce((s, x) => s + x.days, 0);
+    let d = (this.day - 1) % yearLen;
+    for (const s of this.seasons) {
+      if (d < s.days) return s;
+      d -= s.days;
+    }
+    return this.seasons[0];
+  }
+
+  /** Year number (1-based) within the season cycle. */
+  get year() {
+    const yearLen = this.seasons.reduce((s, x) => s + x.days, 0);
+    return Math.floor((this.day - 1) / yearLen) + 1;
+  }
+
+  /** Clock-face string, e.g. "14:30". */
+  get timeString() {
+    const mins = Math.floor(this.t * 24 * 60);
+    const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+    const mm = String(mins % 60).padStart(2, '0');
+    return `${hh}:${mm}`;
+  }
+
+  /**
+   * Sky colours for the current time: games use these to tint their sky
+   * gradient, or override entirely. Returns [top, horizon] CSS colours.
+   * @returns {[string, string]}
+   */
+  skyTint() {
+    const t = this.t;
+    const lerp = (a, b, k) => Math.round(a + (b - a) * k);
+    const mix = (c1, c2, k) => `rgb(${lerp(c1[0], c2[0], k)},${lerp(c1[1], c2[1], k)},${lerp(c1[2], c2[2], k)})`;
+    // Keyframes: [t, topRGB, horizonRGB]
+    const keys = [
+      [0.0, [8, 10, 32], [24, 28, 58]],
+      [0.21, [8, 10, 32], [24, 28, 58]],
+      [0.29, [70, 80, 140], [240, 160, 90]],
+      [0.4, [90, 160, 230], [190, 225, 250]],
+      [0.71, [90, 160, 230], [190, 225, 250]],
+      [0.79, [60, 60, 120], [245, 140, 80]],
+      [0.88, [8, 10, 32], [24, 28, 58]],
+      [1.0, [8, 10, 32], [24, 28, 58]],
+    ];
+    for (let i = 0; i < keys.length - 1; i++) {
+      const [t0, top0, hor0] = keys[i];
+      const [t1, top1, hor1] = keys[i + 1];
+      if (t >= t0 && t <= t1) {
+        const k = (t - t0) / Math.max(t1 - t0, 1e-6);
+        return [mix(top0, top1, k), mix(hor0, hor1, k)];
+      }
+    }
+    return ['#080a20', '#181c3a'];
+  }
+
+  /** Darkness overlay alpha 0..1 — handy for a night tint rectangle. */
+  get darkness() {
+    if (this.phase === 'Day') return 0;
+    if (this.phase === 'Dawn' || this.phase === 'Dusk') return 0.25;
+    return 0.55;
+  }
+
+  /** Subscribe to day rollover. Returns an unsubscribe function. */
+  onDay(fn) {
+    this._dayListeners.push(fn);
+    return () => { this._dayListeners = this._dayListeners.filter((f) => f !== fn); };
+  }
+  /** Subscribe to season change. Returns an unsubscribe function. */
+  onSeason(fn) {
+    this._seasonListeners.push(fn);
+    return () => { this._seasonListeners = this._seasonListeners.filter((f) => f !== fn); };
+  }
+
+  /** Serializable state for the save module. */
+  snapshot() { return { day: this.day, t: this.t }; }
+  restore(s) { if (s) { this.day = s.day ?? this.day; this.t = s.t ?? this.t; this._lastSeason = this.season.name; } }
+}
+
+__exports.DEFAULT_SEASONS = DEFAULT_SEASONS;
+__exports.WorldClock = WorldClock;
+});
+__define("src/weather.js", function (__exports, __require) {
+
+/**
+ * @module weather
+ * A weather state machine: named states with weighted random transitions,
+ * minimum/maximum durations, and change listeners. Games extend it by
+ * supplying their own state table (e.g. a reef adds 'Algal Bloom').
+ *
+ * States carry an `intensity` 0..1 that eases in and out, so rain fades in
+ * rather than snapping on — the one-at-a-time, watchable weather Levi asked
+ * for in World Simulator.
+ */
+
+/** @typedef {{ name: string, min: number, max: number, weight: number, next?: Object<string, number> }} WeatherStateDef
+ *  min/max: duration range in seconds. weight: baseline pick weight.
+ *  next: optional per-state transition weights overriding `weight`. */
+
+const DEFAULT_WEATHER = [
+  { name: 'Clear', min: 20, max: 45, weight: 5 },
+  { name: 'Cloudy', min: 15, max: 35, weight: 3 },
+  { name: 'Rain', min: 12, max: 30, weight: 2 },
+  { name: 'Fog', min: 10, max: 25, weight: 1 },
+  { name: 'Storm', min: 8, max: 18, weight: 1 },
+];
+
+class Weather {
+  /**
+   * @param {object} [opts]
+   * @param {WeatherStateDef[]} [opts.states]
+   * @param {string} [opts.start] starting state name
+   * @param {() => number} [opts.random] injectable RNG for deterministic tests
+   */
+  constructor({ states = DEFAULT_WEATHER, start = 'Clear', random = Math.random } = {}) {
+    this.states = new Map(states.map((s) => [s.name, s]));
+    if (!this.states.has(start)) throw new Error(`weather: unknown start state "${start}"`);
+    this.random = random;
+    this.current = start;
+    this.intensity = 0;
+    this.targetIntensity = 1;
+    this._age = 0;
+    this._duration = this._rollDuration(this.states.get(start));
+    /** @type {Array<(name: string, prev: string) => void>} */
+    this._listeners = [];
+  }
+
+  _rollDuration(def) { return def.min + this.random() * (def.max - def.min); }
+
+  _pickNext() {
+    const from = this.states.get(this.current);
+    const options = [...this.states.values()].filter((s) => s.name !== this.current);
+    let total = 0;
+    const weights = options.map((s) => {
+      const w = from.next && from.next[s.name] != null ? from.next[s.name] : s.weight;
+      total += w;
+      return w;
+    });
+    let r = this.random() * total;
+    for (let i = 0; i < options.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return options[i].name;
+    }
+    return options[options.length - 1].name;
+  }
+
+  /** Advance the machine. Call from the sim tick. @param {number} dt seconds */
+  update(dt) {
+    this._age += dt;
+    // Ease intensity toward target (ramps up on entry, down just before exit).
+    const exiting = this._age > this._duration - 2;
+    this.targetIntensity = exiting ? 0 : 1;
+    const rate = dt / 2;
+    this.intensity += Math.max(-rate, Math.min(rate, this.targetIntensity - this.intensity));
+    if (this._age >= this._duration) this.set(this._pickNext());
+  }
+
+  /** Force a state now (storms arriving on schedule, scripted beats). */
+  set(name) {
+    if (!this.states.has(name)) throw new Error(`weather: unknown state "${name}"`);
+    const prev = this.current;
+    this.current = name;
+    this._age = 0;
+    this._duration = this._rollDuration(this.states.get(name));
+    this.intensity = 0;
+    if (name !== prev) for (const fn of this._listeners) fn(name, prev);
+  }
+
+  /** Subscribe to state changes. Returns an unsubscribe function. */
+  onChange(fn) {
+    this._listeners.push(fn);
+    return () => { this._listeners = this._listeners.filter((f) => f !== fn); };
+  }
+
+  snapshot() { return { current: this.current }; }
+  restore(s) { if (s && this.states.has(s.current)) { this.current = s.current; this._age = 0; this.intensity = 1; } }
+}
+
+__exports.DEFAULT_WEATHER = DEFAULT_WEATHER;
+__exports.Weather = Weather;
+});
+__define("src/chronicle.js", function (__exports, __require) {
+
+/**
+ * @module chronicle
+ * The Chronicle: a dated, categorised event log — the memory of every Wick
+ * world. World Simulator's wars and plagues, the Reef's bleaching warnings
+ * and the Lighthouse's keeper's log are all this one idea: when something
+ * happens, it is written down with its date, and the player can scroll it.
+ *
+ * Entries are plain data (serialisable for saves); renderPanel() builds a
+ * scrollable DOM panel that live-updates as entries arrive.
+ */
+
+class Chronicle {
+  /**
+   * @param {object} [opts]
+   * @param {number} [opts.maxEntries] ring-buffer cap (default 500)
+   * @param {() => string} [opts.stamp] date-stamp provider, e.g. () => `Day ${clock.day}`
+   */
+  constructor({ maxEntries = 500, stamp = () => '' } = {}) {
+    this.maxEntries = maxEntries;
+    this.stamp = stamp;
+    /** @type {Array<{ stamp: string, category: string, text: string }>} */
+    this.entries = [];
+    /** @type {Array<(entry: object) => void>} */
+    this._listeners = [];
+    /** @type {HTMLElement|null} */
+    this._panel = null;
+  }
+
+  /**
+   * Write an entry.
+   * @param {string} text
+   * @param {string} [category] e.g. 'weather', 'economy', 'world', 'danger'
+   * @returns the stored entry
+   */
+  add(text, category = 'world') {
+    const entry = { stamp: this.stamp(), category, text };
+    this.entries.push(entry);
+    if (this.entries.length > this.maxEntries) {
+      this.entries.splice(0, this.entries.length - this.maxEntries);
+    }
+    for (const fn of this._listeners) fn(entry);
+    if (this._panel) this._appendToPanel(entry);
+    return entry;
+  }
+
+  /** Newest-first copy of entries, optionally filtered by category. */
+  list(category) {
+    const src = category ? this.entries.filter((e) => e.category === category) : this.entries;
+    return [...src].reverse();
+  }
+
+  onEntry(fn) {
+    this._listeners.push(fn);
+    return () => { this._listeners = this._listeners.filter((f) => f !== fn); };
+  }
+
+  /**
+   * Build the scrollable DOM panel. Newest entries appear at the top; the
+   * panel updates itself as entries are added while it exists.
+   * @param {{ title?: string, height?: string }} [opts]
+   * @returns {HTMLElement}
+   */
+  renderPanel({ title = 'Chronicle', height = '180px' } = {}) {
+    const wrap = document.createElement('div');
+    wrap.className = 'wick-chronicle';
+    wrap.style.cssText =
+      'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;color:#dfe6f2;' +
+      'font:13px/1.45 system-ui,sans-serif;padding:8px 10px;box-sizing:border-box;';
+    const head = document.createElement('div');
+    head.textContent = title;
+    head.style.cssText = 'font-weight:700;letter-spacing:.06em;font-size:11px;color:#f5c56b;margin-bottom:6px;';
+    const body = document.createElement('div');
+    body.className = 'wick-chronicle-body';
+    body.style.cssText = `overflow-y:auto;max-height:${height};padding-right:4px;`;
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+    this._panel = body;
+    for (const e of this.list()) this._appendToPanel(e, true);
+    return wrap;
+  }
+
+  _appendToPanel(entry, atEnd = false) {
+    if (!this._panel) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05);';
+    const when = entry.stamp ? `<span style="color:#8fa3c4">${entry.stamp}</span> · ` : '';
+    row.innerHTML = `${when}<span style="color:#f5c56b">${entry.category}</span> — ${entry.text}`;
+    if (atEnd) this._panel.appendChild(row);
+    else this._panel.prepend(row);
+  }
+
+  snapshot() { return { entries: this.entries }; }
+  restore(s) {
+    if (!s) return;
+    this.entries = Array.isArray(s.entries) ? s.entries.slice(-this.maxEntries) : [];
+    if (this._panel) {
+      this._panel.innerHTML = '';
+      for (const e of this.list()) this._appendToPanel(e, true);
+    }
+  }
+}
+
+__exports.Chronicle = Chronicle;
+});
+__define("src/entities.js", function (__exports, __require) {
+
+/**
+ * @module entities
+ * A minimal entity world: a list of things with position, velocity and a
+ * behaviour, updated and drawn each frame. Deliberately NOT an ECS — the
+ * shipped games never needed one. Behaviours are small steering functions:
+ * wander, follow, seek, and flee, composable in an entity's own update.
+ */
+
+/**
+ * @typedef {object} Entity
+ * @property {number} x @property {number} y
+ * @property {number} vx @property {number} vy
+ * @property {number} speed base movement speed (units/sec)
+ * @property {boolean} dead set true to despawn on the next sweep
+ * @property {Function} [update] per-entity update fn(entity, dt, world)
+ * @property {Function} [draw] per-entity draw fn(entity, ctx)
+ * @property {object} data free-form game data
+ */
+
+/** Behaviour: drift randomly within optional bounds. */
+function wander(e, dt, rng = Math.random) {
+  e._wanderT = (e._wanderT ?? 0) - dt;
+  if (e._wanderT <= 0) {
+    e._wanderT = 1 + rng() * 2;
+    const a = rng() * Math.PI * 2;
+    e.vx = Math.cos(a) * e.speed;
+    e.vy = Math.sin(a) * e.speed;
+  }
+  step(e, dt);
+  if (e.bounds) clampToBounds(e);
+}
+
+/** Behaviour: follow a target point/entity, stopping inside `arrive` radius. */
+function follow(e, target, dt, arrive = 24) {
+  const dx = target.x - e.x;
+  const dy = target.y - e.y;
+  const d = Math.hypot(dx, dy);
+  if (d <= arrive) { e.vx = 0; e.vy = 0; return; }
+  e.vx = (dx / d) * e.speed;
+  e.vy = (dy / d) * e.speed;
+  step(e, dt);
+}
+
+/** Behaviour: move straight toward a point at full speed. */
+function seek(e, x, y, dt) {
+  const dx = x - e.x;
+  const dy = y - e.y;
+  const d = Math.hypot(dx, dy) || 1;
+  e.vx = (dx / d) * e.speed;
+  e.vy = (dy / d) * e.speed;
+  step(e, dt);
+}
+
+/** Behaviour: move directly away from a point (ducks scattering, deer bolting). */
+function flee(e, x, y, dt) {
+  const dx = e.x - x;
+  const dy = e.y - y;
+  const d = Math.hypot(dx, dy) || 1;
+  e.vx = (dx / d) * e.speed;
+  e.vy = (dy / d) * e.speed;
+  step(e, dt);
+}
+
+function step(e, dt) { e.x += e.vx * dt; e.y += e.vy * dt; }
+function clampToBounds(e) {
+  const b = e.bounds;
+  e.x = Math.max(b.x, Math.min(b.x + b.w, e.x));
+  e.y = Math.max(b.y, Math.min(b.y + b.h, e.y));
+}
+
+class World {
+  constructor() {
+    /** @type {Entity[]} */
+    this.entities = [];
+  }
+
+  /**
+   * Spawn an entity.
+   * @param {Partial<Entity> & { x: number, y: number }} props
+   * @returns {Entity} the spawned entity (same object, mutated in place)
+   */
+  spawn(props) {
+    const e = Object.assign(
+      { x: 0, y: 0, vx: 0, vy: 0, speed: 40, dead: false, data: {} },
+      props,
+    );
+    this.entities.push(e);
+    return e;
+  }
+
+  /** Mark an entity for removal. */
+  despawn(e) { e.dead = true; }
+
+  /** Update all entities (and sweep the dead). Call from the sim tick. */
+  update(dt) {
+    for (const e of this.entities) {
+      if (e.update) e.update(e, dt, this);
+    }
+    if (this.entities.some((e) => e.dead)) {
+      this.entities = this.entities.filter((e) => !e.dead);
+    }
+  }
+
+  /**
+   * Draw all entities that have a draw fn, sorted by y (cheap depth for
+   * top-down scenes) unless an entity sets `z` explicitly.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  draw(ctx) {
+    const sorted = [...this.entities].sort((a, b) => (a.z ?? a.y) - (b.z ?? b.y));
+    for (const e of sorted) if (e.draw) e.draw(e, ctx);
+  }
+
+  /** Live entities matching a predicate. */
+  find(fn) { return this.entities.filter((e) => !e.dead && fn(e)); }
+  get count() { return this.entities.length; }
+  clear() { this.entities = []; }
+}
+
+__exports.wander = wander;
+__exports.follow = follow;
+__exports.seek = seek;
+__exports.flee = flee;
+__exports.World = World;
+});
+__define("src/input.js", function (__exports, __require) {
+
+/**
+ * @module input
+ * Keyboard + touch input, unified: games read named actions ("left",
+ * "interact") and never care which device produced them. Touch buttons are
+ * real DOM buttons that press the same virtual keys, so one code path serves
+ * desktop and phone — the pattern all three shipped games used.
+ *
+ * Also home to the Channel: hold-to-work. The Lighthouse's chores (fill,
+ * clean, cook, climb) are holds, not taps: press, keep holding while a
+ * progress bar fills, release to cancel.
+ */
+
+const DEFAULT_BINDINGS = {
+  left: ['ArrowLeft', 'KeyA'],
+  right: ['ArrowRight', 'KeyD'],
+  up: ['ArrowUp', 'KeyW'],
+  down: ['ArrowDown', 'KeyS'],
+  interact: ['KeyE', 'Space'],
+  pause: ['KeyP', 'Escape'],
+};
+
+class Input {
+  /**
+   * @param {object} [opts]
+   * @param {Object<string, string[]>} [opts.bindings] action -> KeyboardEvent.code list
+   * @param {HTMLElement} [opts.target] element to listen on (default window)
+   */
+  constructor({ bindings = DEFAULT_BINDINGS, target = window } = {}) {
+    this.bindings = bindings;
+    this._down = new Set(); // physical codes currently down
+    this._virtual = new Set(); // action names pressed via touch buttons
+    this._pressed = new Set(); // actions that went down this frame
+    this._target = target;
+    this._onKeyDown = (ev) => {
+      if (this._isBound(ev.code)) {
+        if (!ev.repeat) {
+          for (const [action, codes] of Object.entries(this.bindings)) {
+            if (codes.includes(ev.code) && !this.held(action)) this._pressed.add(action);
+          }
+        }
+        this._down.add(ev.code);
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(ev.code)) ev.preventDefault();
+      }
+    };
+    this._onKeyUp = (ev) => { this._down.delete(ev.code); };
+    this._onBlur = () => { this._down.clear(); this._virtual.clear(); };
+    target.addEventListener('keydown', this._onKeyDown);
+    target.addEventListener('keyup', this._onKeyUp);
+    window.addEventListener('blur', this._onBlur);
+  }
+  _isBound(code) {
+    return Object.values(this.bindings).some((codes) => codes.includes(code));
+  }
+  /** Is the action held right now (keyboard or touch)? */
+  held(action) {
+    if (this._virtual.has(action)) return true;
+    const codes = this.bindings[action] || [];
+    return codes.some((c) => this._down.has(c));
+  }
+  /** Did the action go down since the last endFrame()? Edge trigger. */
+  pressed(action) { return this._pressed.has(action); }
+  /** Horizontal axis: -1, 0 or 1. */
+  get x() { return (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0); }
+  /** Vertical axis: -1, 0 or 1. */
+  get y() { return (this.held('down') ? 1 : 0) - (this.held('up') ? 1 : 0); }
+  /** Press/release a virtual action (used by touch buttons). */
+  setVirtual(action, down) {
+    if (down && !this.held(action)) this._pressed.add(action);
+    if (down) this._virtual.add(action); else this._virtual.delete(action);
+  }
+  /** Call once per frame after game logic has consumed edge triggers. */
+  endFrame() { this._pressed.clear(); }
+  destroy() {
+    this._target.removeEventListener('keydown', this._onKeyDown);
+    this._target.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onBlur);
+  }
+}
+
+/**
+ * Build a row of on-screen touch buttons bound to an Input's actions.
+ * Buttons fire on pointerdown/up, so holds work exactly like held keys.
+ * @param {Input} input
+ * @param {Array<{ action: string, label: string }>} defs
+ * @returns {HTMLElement}
+ */
+function touchButtons(input, defs) {
+  const bar = document.createElement('div');
+  bar.className = 'wick-touch';
+  bar.style.cssText =
+    'display:flex;gap:8px;justify-content:space-between;padding:8px;box-sizing:border-box;' +
+    'pointer-events:none;';
+  const mk = ({ action, label }) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.dataset.action = action;
+    b.style.cssText =
+      'pointer-events:auto;min-width:52px;min-height:52px;border-radius:12px;border:1px solid #3a4157;' +
+      'background:rgba(20,24,36,.85);color:#dfe6f2;font:600 15px system-ui,sans-serif;touch-action:none;' +
+      'user-select:none;-webkit-user-select:none;';
+    const on = (ev) => { ev.preventDefault(); input.setVirtual(action, true); };
+    const off = (ev) => { ev.preventDefault(); input.setVirtual(action, false); };
+    b.addEventListener('pointerdown', on);
+    b.addEventListener('pointerup', off);
+    b.addEventListener('pointerleave', off);
+    b.addEventListener('pointercancel', off);
+    return b;
+  };
+  const left = document.createElement('div');
+  left.style.cssText = 'display:flex;gap:8px;';
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex;gap:8px;';
+  defs.forEach((d, i) => (i < defs.length - 1 ? left : right).appendChild(mk(d)));
+  bar.appendChild(left);
+  bar.appendChild(right);
+  return bar;
+}
+
+/**
+ * A hold-to-work channel: while `activeWhen()` is true, progress fills over
+ * `duration` seconds; completing fires onComplete once; letting go resets.
+ * Render the bar wherever you like from `progress` (0..1) — see ui.gauge.
+ */
+class Channel {
+  /**
+   * @param {object} opts
+   * @param {number} opts.duration seconds of holding required
+   * @param {() => void} opts.onComplete
+   * @param {() => void} [opts.onStart]
+   */
+  constructor({ duration, onComplete, onStart }) {
+    this.duration = duration;
+    this.onComplete = onComplete;
+    this.onStart = onStart;
+    this.progress = 0;
+    this.active = false;
+  }
+  /**
+   * @param {number} dt
+   * @param {boolean} holding whether the interact control is held AND conditions are met
+   */
+  update(dt, holding) {
+    if (holding) {
+      if (!this.active) { this.active = true; if (this.onStart) this.onStart(); }
+      this.progress += dt / this.duration;
+      if (this.progress >= 1) {
+        this.progress = 0;
+        this.active = false;
+        this.onComplete();
+      }
+    } else if (this.active || this.progress > 0) {
+      this.active = false;
+      this.progress = 0;
+    }
+  }
+  get working() { return this.active; }
+}
+
+__exports.DEFAULT_BINDINGS = DEFAULT_BINDINGS;
+__exports.Input = Input;
+__exports.touchButtons = touchButtons;
+__exports.Channel = Channel;
+});
+__define("src/ui.js", function (__exports, __require) {
+
+/**
+ * @module ui
+ * The HUD kit every Wick game shares: top chips (counters), gauges (bars),
+ * a contextual prompt line, a dialogue box, and an objectives list.
+ *
+ * All DOM, all inline-styled — no CSS file to ship, no framework — matching
+ * the shipped games' HUDs: dark glass panels, amber accents, system font.
+ */
+
+const PANEL =
+  'background:rgba(12,14,22,.88);border:1px solid #3a4157;border-radius:999px;color:#dfe6f2;' +
+  'font:600 13px system-ui,sans-serif;padding:5px 12px;white-space:nowrap;';
+
+/** A row of counter chips. `update(key, value)` rewrites one chip's value. */
+class Chips {
+  /** @param {Array<{ key: string, label: string, value: string|number }>} defs */
+  constructor(defs) {
+    this.el = document.createElement('div');
+    this.el.className = 'wick-chips';
+    this.el.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+    /** @type {Map<string, HTMLSpanElement>} */
+    this._values = new Map();
+    for (const d of defs) {
+      const chip = document.createElement('div');
+      chip.style.cssText = PANEL;
+      chip.innerHTML = `${d.label} <span style="color:#f5c56b"></span>`;
+      this._values.set(d.key, chip.querySelector('span'));
+      this.set(d.key, d.value);
+      this.el.appendChild(chip);
+    }
+  }
+  set(key, value) {
+    const s = this._values.get(key);
+    if (s) s.textContent = String(value);
+  }
+}
+
+/**
+ * A labelled bar. Also exactly the shape a hold-to-work Channel renders with.
+ * @param {string} label
+ * @param {{ color?: string, max?: number }} [opts]
+ */
+function gauge(label, { color = '#f5c56b', max = 100 } = {}) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'color:#dfe6f2;font:12px system-ui,sans-serif;margin:3px 0;';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:space-between;';
+  const name = document.createElement('span');
+  name.textContent = label;
+  const val = document.createElement('span');
+  val.style.color = '#8fa3c4';
+  const track = document.createElement('div');
+  track.style.cssText = 'height:8px;background:#232838;border-radius:99px;overflow:hidden;margin-top:2px;';
+  const fill = document.createElement('div');
+  fill.style.cssText = `height:100%;background:${color};border-radius:99px;transition:width .15s;`;
+  track.appendChild(fill);
+  row.appendChild(name);
+  row.appendChild(val);
+  wrap.appendChild(row);
+  wrap.appendChild(track);
+  return {
+    el: wrap,
+    /** @param {number} v value in 0..max */
+    set(v) {
+      const pct = Math.max(0, Math.min(100, (v / max) * 100));
+      fill.style.width = pct + '%';
+      val.textContent = `${Math.round(v)}`;
+    },
+  };
+}
+
+/** A stack of gauges in a titled panel (the keeper's-panel shape). */
+class GaugePanel {
+  /** @param {string} title @param {Array<{ key: string, label: string, color?: string, max?: number }>} defs */
+  constructor(title, defs) {
+    this.el = document.createElement('div');
+    this.el.style.cssText =
+      'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;padding:10px 12px;box-sizing:border-box;';
+    const head = document.createElement('div');
+    head.textContent = title;
+    head.style.cssText = 'font:700 11px system-ui,sans-serif;letter-spacing:.06em;color:#f5c56b;margin-bottom:6px;';
+    this.el.appendChild(head);
+    /** @type {Map<string, ReturnType<typeof gauge>>} */
+    this._gauges = new Map();
+    for (const d of defs) {
+      const g = gauge(d.label, d);
+      this._gauges.set(d.key, g);
+      this.el.appendChild(g.el);
+    }
+  }
+  set(key, v) { const g = this._gauges.get(key); if (g) g.set(v); }
+}
+
+/** The contextual prompt line: "E — Read the instruments". */
+class Prompt {
+  constructor() {
+    this.el = document.createElement('div');
+    this.el.className = 'wick-prompt';
+    this.el.style.cssText =
+      'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);' + PANEL + 'display:none;z-index:5;';
+  }
+  show(text) { this.el.textContent = text; this.el.style.display = 'block'; }
+  hide() { this.el.style.display = 'none'; }
+}
+
+/**
+ * A dialogue box: shows lines one at a time; advance() moves on (wire it to
+ * the interact key's pressed edge). onDone fires after the last line.
+ */
+class Dialogue {
+  /** @param {{ onDone?: () => void }} [opts] */
+  constructor({ onDone } = {}) {
+    this.onDone = onDone;
+    this.lines = [];
+    this.i = 0;
+    this.open = false;
+    this.el = document.createElement('div');
+    this.el.style.cssText =
+      'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:min(92%,560px);' +
+      'background:rgba(12,14,22,.95);border:1px solid #3a4157;border-radius:12px;color:#dfe6f2;' +
+      'font:14px/1.5 system-ui,sans-serif;padding:12px 14px;box-sizing:border-box;display:none;z-index:6;';
+    this._name = document.createElement('div');
+    this._name.style.cssText = 'font-weight:700;color:#f5c56b;font-size:12px;letter-spacing:.05em;';
+    this._text = document.createElement('div');
+    this.el.appendChild(this._name);
+    this.el.appendChild(this._text);
+  }
+  /** @param {Array<{ name?: string, text: string }>} lines */
+  say(lines) {
+    this.lines = lines;
+    this.i = 0;
+    this.open = true;
+    this._render();
+  }
+  advance() {
+    if (!this.open) return;
+    this.i++;
+    if (this.i >= this.lines.length) {
+      this.open = false;
+      this.el.style.display = 'none';
+      if (this.onDone) this.onDone();
+    } else this._render();
+  }
+  _render() {
+    const line = this.lines[this.i];
+    this._name.textContent = line.name || '';
+    this._name.style.display = line.name ? 'block' : 'none';
+    this._text.textContent = line.text;
+    this.el.style.display = 'block';
+  }
+}
+
+/** An objectives / readiness checklist with done ticks. */
+class Objectives {
+  /** @param {string} title */
+  constructor(title) {
+    this.el = document.createElement('div');
+    this.el.style.cssText =
+      'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;padding:10px 12px;' +
+      'color:#dfe6f2;font:13px/1.5 system-ui,sans-serif;box-sizing:border-box;';
+    const head = document.createElement('div');
+    head.textContent = title;
+    head.style.cssText = 'font:700 11px system-ui,sans-serif;letter-spacing:.06em;color:#f5c56b;margin-bottom:4px;';
+    this.el.appendChild(head);
+    this._list = document.createElement('div');
+    this.el.appendChild(this._list);
+    /** @type {Map<string, { text: string, done: boolean, row: HTMLElement }>} */
+    this._items = new Map();
+  }
+  /** @param {string} key @param {string} text */
+  add(key, text) {
+    const row = document.createElement('div');
+    this._list.appendChild(row);
+    this._items.set(key, { text, done: false, row });
+    this._render(key);
+  }
+  setDone(key, done = true) {
+    const it = this._items.get(key);
+    if (it) { it.done = done; this._render(key); }
+  }
+  _render(key) {
+    const it = this._items.get(key);
+    it.row.textContent = `${it.done ? '✓' : '○'} ${it.text}`;
+    it.row.style.color = it.done ? '#8fa98f' : '#dfe6f2';
+    it.row.style.textDecoration = it.done ? 'line-through' : 'none';
+  }
+}
+
+__exports.Chips = Chips;
+__exports.gauge = gauge;
+__exports.GaugePanel = GaugePanel;
+__exports.Prompt = Prompt;
+__exports.Dialogue = Dialogue;
+__exports.Objectives = Objectives;
+});
+__define("src/economy.js", function (__exports, __require) {
+
+/**
+ * @module economy
+ * Money and stuff, as primitives: a Wallet of coin and a Stock inventory of
+ * counted goods. The Lighthouse's Harbor Board coin and Mabel's shelves are
+ * the reference implementation — pay at dawn, spend at the counter, and the
+ * numbers always move through these two objects so they can be saved,
+ * displayed and audited in one place.
+ */
+
+class Wallet {
+  /** @param {number} [coin] starting coin */
+  constructor(coin = 0) { this.coin = coin; }
+  canAfford(price) { return this.coin >= price; }
+  /** Add coin. @returns new balance */
+  earn(n) { this.coin += n; return this.coin; }
+  /**
+   * Spend coin if affordable.
+   * @returns {boolean} true if the spend happened
+   */
+  spend(n) {
+    if (!this.canAfford(n)) return false;
+    this.coin -= n;
+    return true;
+  }
+  snapshot() { return { coin: this.coin }; }
+  restore(s) { if (s) this.coin = s.coin ?? this.coin; }
+}
+
+class Stock {
+  /** @param {Object<string, number>} [initial] item id -> count */
+  constructor(initial = {}) { this.items = { ...initial }; }
+  count(id) { return this.items[id] ?? 0; }
+  /** @returns new count of id */
+  add(id, n = 1) { this.items[id] = this.count(id) + n; return this.items[id]; }
+  /**
+   * Remove n of id if available.
+   * @returns {boolean} true if removed
+   */
+  take(id, n = 1) {
+    if (this.count(id) < n) return false;
+    this.items[id] -= n;
+    return true;
+  }
+  snapshot() { return { items: { ...this.items } }; }
+  restore(s) { if (s) this.items = { ...(s.items || {}) }; }
+}
+
+__exports.Wallet = Wallet;
+__exports.Stock = Stock;
+});
+__define("src/shop.js", function (__exports, __require) {
+
+/**
+ * @module shop
+ * The shop panel: a list of goods with prices, bought with a Wallet into a
+ * Stock. This is Mabel's Chandlery, generalised — the panel owns no game
+ * state; it moves numbers through economy.Wallet / economy.Stock and reports
+ * each purchase through onBuy so the game can chronicle it, play a sound, or
+ * check an objective off.
+ */
+
+const { Wallet: _W, Stock: _S } = __require("src/economy.js"); // type-only reference for JSDoc readers
+
+/**
+ * @typedef {object} Good
+ * @property {string} id stock item id the purchase adds
+ * @property {string} name display name
+ * @property {number} price in coin
+ * @property {number} [qty] how many of `id` one purchase adds (default 1)
+ * @property {string} [blurb] one-line description
+ */
+
+class ShopPanel {
+  /**
+   * @param {object} opts
+   * @param {string} opts.title shop name shown in the header
+   * @param {Good[]} opts.goods
+   * @param {InstanceType<typeof _W>} opts.wallet
+   * @param {InstanceType<typeof _S>} opts.stock
+   * @param {(good: Good) => void} [opts.onBuy] called after a successful purchase
+   * @param {(good: Good) => void} [opts.onRefuse] called when the wallet can't pay
+   */
+  constructor({ title, goods, wallet, stock, onBuy, onRefuse }) {
+    this.title = title;
+    this.goods = goods;
+    this.wallet = wallet;
+    this.stock = stock;
+    this.onBuy = onBuy;
+    this.onRefuse = onRefuse;
+    this.open = false;
+    this.el = document.createElement('div');
+    this.el.className = 'wick-shop';
+    this.el.style.cssText =
+      'position:absolute;right:12px;top:64px;width:min(88vw,300px);z-index:7;' +
+      'background:rgba(12,14,22,.96);border:1px solid #3a4157;border-radius:12px;color:#dfe6f2;' +
+      'font:13px/1.45 system-ui,sans-serif;padding:12px;box-sizing:border-box;display:none;';
+    this._build();
+  }
+
+  _build() {
+    this.el.innerHTML = '';
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;';
+    const name = document.createElement('div');
+    name.textContent = this.title;
+    name.style.cssText = 'font-weight:700;color:#f5c56b;';
+    this._coinEl = document.createElement('div');
+    this._coinEl.dataset.role = 'coin';
+    this._coinEl.style.cssText = 'color:#8fa3c4;font-size:12px;';
+    head.appendChild(name);
+    head.appendChild(this._coinEl);
+    this.el.appendChild(head);
+    this._rows = new Map();
+    for (const good of this.goods) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);';
+      const info = document.createElement('div');
+      const nameLine = document.createElement('div');
+      nameLine.textContent = good.name;
+      const owned = document.createElement('span');
+      owned.dataset.role = 'owned';
+      owned.style.cssText = 'color:#8fa3c4;font-size:12px;';
+      nameLine.appendChild(owned);
+      info.appendChild(nameLine);
+      if (good.blurb) {
+        const blurb = document.createElement('div');
+        blurb.textContent = good.blurb;
+        blurb.style.cssText = 'color:#8fa3c4;font-size:12px;';
+        info.appendChild(blurb);
+      }
+      const btn = document.createElement('button');
+      btn.textContent = `Buy · ${good.price}`;
+      btn.dataset.good = good.id;
+      btn.style.cssText =
+        'border:1px solid #3a4157;background:#1b2130;color:#f5c56b;border-radius:8px;' +
+        'font:600 12px system-ui,sans-serif;padding:6px 10px;cursor:pointer;white-space:nowrap;';
+      btn.addEventListener('click', () => this.buy(good.id));
+      row.appendChild(info);
+      row.appendChild(btn);
+      this.el.appendChild(row);
+      this._rows.set(good.id, { owned, btn });
+    }
+    const close = document.createElement('button');
+    close.textContent = 'Close (E)';
+    close.style.cssText =
+      'margin-top:10px;width:100%;border:1px solid #3a4157;background:transparent;color:#dfe6f2;' +
+      'border-radius:8px;font:600 12px system-ui,sans-serif;padding:7px;cursor:pointer;';
+    close.addEventListener('click', () => this.toggle(false));
+    this.el.appendChild(close);
+    this.refresh();
+  }
+
+  /** Re-read wallet/stock and update every number + button state. */
+  refresh() {
+    if (this._coinEl) this._coinEl.textContent = `Coin: ${this.wallet.coin}`;
+    for (const good of this.goods) {
+      const row = this._rows.get(good.id);
+      if (!row) continue;
+      row.owned.textContent = ` · have ${this.stock.count(good.id)}`;
+      const afford = this.wallet.canAfford(good.price);
+      row.btn.disabled = !afford;
+      row.btn.style.opacity = afford ? '1' : '.45';
+    }
+  }
+
+  /**
+   * Buy one unit of a good by id. Moves coin and stock atomically.
+   * @returns {boolean} true if the purchase happened
+   */
+  buy(id) {
+    const good = this.goods.find((g) => g.id === id);
+    if (!good) return false;
+    if (!this.wallet.spend(good.price)) {
+      if (this.onRefuse) this.onRefuse(good);
+      this.refresh();
+      return false;
+    }
+    this.stock.add(good.id, good.qty ?? 1);
+    this.refresh();
+    if (this.onBuy) this.onBuy(good);
+    return true;
+  }
+
+  /** @param {boolean} [force] */
+  toggle(force) {
+    this.open = force != null ? force : !this.open;
+    this.el.style.display = this.open ? 'block' : 'none';
+    if (this.open) this.refresh();
+    return this.open;
+  }
+}
+
+__exports.ShopPanel = ShopPanel;
+});
+__define("src/save.js", function (__exports, __require) {
+
+/**
+ * @module save
+ * localStorage saves with a version field. Games register named providers —
+ * one per system that has state (clock, wallet, stock, chronicle, their own
+ * world) — each a { save(), load(data) } pair. The envelope is always
+ * { version, savedAt, data: { key: ... } }, so old saves can be migrated by
+ * version instead of silently misread.
+ */
+
+const SAVE_VERSION = 1;
+
+class SaveSystem {
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.prefix] localStorage key prefix (per game)
+   * @param {number} [opts.version]
+   */
+  constructor({ prefix = 'wick', version = SAVE_VERSION } = {}) {
+    this.prefix = prefix;
+    this.version = version;
+    /** @type {Map<string, { save: () => any, load: (data: any) => void }>} */
+    this._providers = new Map();
+  }
+
+  /**
+   * Register a state provider.
+   * @param {string} key
+   * @param {{ save: () => any, load: (data: any) => void }} provider
+   */
+  register(key, provider) { this._providers.set(key, provider); }
+
+  _key(slot) { return `${this.prefix}:save:${slot}`; }
+
+  /**
+   * Write a save slot.
+   * @param {string} [slot]
+   * @returns {boolean} false if storage was unavailable/full
+   */
+  save(slot = 'main') {
+    const data = {};
+    for (const [key, p] of this._providers) data[key] = p.save();
+    try {
+      localStorage.setItem(this._key(slot), JSON.stringify({ version: this.version, savedAt: Date.now(), data }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Read a save slot into all providers.
+   * @param {string} [slot]
+   * @returns {{ ok: boolean, reason?: string, version?: number }}
+   */
+  load(slot = 'main') {
+    let raw;
+    try { raw = localStorage.getItem(this._key(slot)); } catch { return { ok: false, reason: 'storage-unavailable' }; }
+    if (!raw) return { ok: false, reason: 'empty' };
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return { ok: false, reason: 'corrupt' }; }
+    if (parsed.version !== this.version) {
+      return { ok: false, reason: 'version-mismatch', version: parsed.version };
+    }
+    for (const [key, p] of this._providers) {
+      if (parsed.data && key in parsed.data) p.load(parsed.data[key]);
+    }
+    return { ok: true, version: parsed.version };
+  }
+
+  has(slot = 'main') {
+    try { return localStorage.getItem(this._key(slot)) != null; } catch { return false; }
+  }
+  clear(slot = 'main') {
+    try { localStorage.removeItem(this._key(slot)); } catch { /* storage unavailable */ }
+  }
+}
+
+__exports.SAVE_VERSION = SAVE_VERSION;
+__exports.SaveSystem = SaveSystem;
+});
+__define("src/audio.js", function (__exports, __require) {
+
+/**
+ * @module audio
+ * A tiny WebAudio helper: synthesised blips and a soft noise-based ambience,
+ * no audio assets. Games in this family ship as one file, so sound has to be
+ * made, not loaded. Deliberately minimal: a blip, a chime arpeggio, rain-ish
+ * noise you can fade with weather intensity, and a mute.
+ *
+ * The context is created lazily on first use (browsers require a user
+ * gesture; games should call unlock() from their first click/keypress).
+ */
+
+class AudioKit {
+  constructor() {
+    /** @type {AudioContext|null} */
+    this.ctx = null;
+    this.muted = false;
+    this._ambient = null; // { source, gain }
+  }
+
+  /** Create/resume the context. Safe to call repeatedly. */
+  unlock() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      this.ctx = new AC();
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return true;
+  }
+
+  /**
+   * A short synthesised tone.
+   * @param {object} [opts]
+   * @param {number} [opts.freq] Hz (default 660)
+   * @param {number} [opts.dur] seconds (default 0.08)
+   * @param { OscillatorType } [opts.type]
+   * @param {number} [opts.gain] 0..1
+   * @param {number} [opts.slide] Hz to glide to over dur
+   */
+  blip({ freq = 660, dur = 0.08, type = 'sine', gain = 0.15, slide = 0 } = {}) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, slide), t + dur);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g).connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
+  /** A pleasant two-note chime — purchases, completed work, dawn. */
+  chime() {
+    this.blip({ freq: 660, dur: 0.12, type: 'triangle', gain: 0.12 });
+    setTimeout(() => this.blip({ freq: 990, dur: 0.16, type: 'triangle', gain: 0.12 }), 70);
+  }
+
+  /**
+   * Start/stop looping filtered-noise ambience (rain, wind, sea).
+   * @param {number} level 0..1; 0 stops it
+   * @param {{ freq?: number }} [opts] filter cutoff — low for wind, high for rain
+   */
+  setAmbient(level, { freq = 800 } = {}) {
+    if (!this.ctx) return;
+    if (level <= 0) {
+      if (this._ambient) {
+        try { this._ambient.source.stop(); } catch { /* already stopped */ }
+        this._ambient = null;
+      }
+      return;
+    }
+    if (!this._ambient) {
+      const len = this.ctx.sampleRate * 2;
+      const buffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      source.connect(filter).connect(gain).connect(this.ctx.destination);
+      source.start();
+      this._ambient = { source, gain, filter };
+    }
+    this._ambient.filter.frequency.value = freq;
+    this._ambient.gain.gain.setTargetAtTime(this.muted ? 0 : level * 0.12, this.ctx.currentTime, 0.4);
+  }
+
+  setMuted(m) {
+    this.muted = m;
+    if (this._ambient && this.ctx) {
+      this._ambient.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
+    }
+  }
+}
+
+__exports.AudioKit = AudioKit;
+});
+__require("src/index.js");
