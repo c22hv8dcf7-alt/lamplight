@@ -4,7 +4,7 @@ const __cache = Object.create(null);
 function __define(p, fn) { __modules[p] = fn; }
 function __require(p) {
   if (__cache[p]) return __cache[p].exports;
-  if (!__modules[p]) throw new Error('wick bundle: module not found: ' + p);
+  if (!__modules[p]) throw new Error('lamplight bundle: module not found: ' + p);
   const m = { exports: {} };
   __cache[p] = m;
   __modules[p](m.exports, __require);
@@ -13,7 +13,7 @@ function __require(p) {
 __define("src/index.js", function (__exports, __require) {
 
 /**
- * Wick Engine — public entry point.
+ * Lamplight Engine — public entry point.
  * Every module is independent; games may import the whole surface from here
  * or reach for single modules (the bundler only ships what the graph uses...
  * in v0.1 it ships what you import — import from here for the full kit).
@@ -644,7 +644,7 @@ __define("src/chronicle.js", function (__exports, __require) {
 
 /**
  * @module chronicle
- * The Chronicle: a dated, categorised event log — the memory of every Wick
+ * The Chronicle: a dated, categorised event log — the memory of every Lamplight
  * world. World Simulator's wars and plagues, the Reef's bleaching warnings
  * and the Lighthouse's keeper's log are all this one idea: when something
  * happens, it is written down with its date, and the player can scroll it.
@@ -706,7 +706,7 @@ class Chronicle {
    */
   renderPanel({ title = 'Chronicle', height = '180px' } = {}) {
     const wrap = document.createElement('div');
-    wrap.className = 'wick-chronicle';
+    wrap.className = 'lamplight-chronicle';
     wrap.style.cssText =
       'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;color:#dfe6f2;' +
       'font:13px/1.45 system-ui,sans-serif;padding:8px 10px;box-sizing:border-box;';
@@ -714,7 +714,7 @@ class Chronicle {
     head.textContent = title;
     head.style.cssText = 'font-weight:700;letter-spacing:.06em;font-size:11px;color:#f5c56b;margin-bottom:6px;';
     const body = document.createElement('div');
-    body.className = 'wick-chronicle-body';
+    body.className = 'lamplight-chronicle-body';
     body.style.cssText = `overflow-y:auto;max-height:${height};padding-right:4px;`;
     wrap.appendChild(head);
     wrap.appendChild(body);
@@ -963,7 +963,7 @@ class Input {
  */
 function touchButtons(input, defs) {
   const bar = document.createElement('div');
-  bar.className = 'wick-touch';
+  bar.className = 'lamplight-touch';
   bar.style.cssText =
     'display:flex;gap:8px;justify-content:space-between;padding:8px;box-sizing:border-box;' +
     'pointer-events:none;';
@@ -1042,7 +1042,7 @@ __define("src/ui.js", function (__exports, __require) {
 
 /**
  * @module ui
- * The HUD kit every Wick game shares: top chips (counters), gauges (bars),
+ * The HUD kit every Lamplight game shares: top chips (counters), gauges (bars),
  * a contextual prompt line, a dialogue box, and an objectives list.
  *
  * All DOM, all inline-styled — no CSS file to ship, no framework — matching
@@ -1058,7 +1058,7 @@ class Chips {
   /** @param {Array<{ key: string, label: string, value: string|number }>} defs */
   constructor(defs) {
     this.el = document.createElement('div');
-    this.el.className = 'wick-chips';
+    this.el.className = 'lamplight-chips';
     this.el.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
     /** @type {Map<string, HTMLSpanElement>} */
     this._values = new Map();
@@ -1137,7 +1137,7 @@ class GaugePanel {
 class Prompt {
   constructor() {
     this.el = document.createElement('div');
-    this.el.className = 'wick-prompt';
+    this.el.className = 'lamplight-prompt';
     this.el.style.cssText =
       'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);' + PANEL + 'display:none;z-index:5;';
   }
@@ -1328,7 +1328,7 @@ class ShopPanel {
     this.onRefuse = onRefuse;
     this.open = false;
     this.el = document.createElement('div');
-    this.el.className = 'wick-shop';
+    this.el.className = 'lamplight-shop';
     this.el.style.cssText =
       'position:absolute;right:12px;top:64px;width:min(88vw,300px);z-index:7;' +
       'background:rgba(12,14,22,.96);border:1px solid #3a4157;border-radius:12px;color:#dfe6f2;' +
@@ -1450,7 +1450,7 @@ class SaveSystem {
    * @param {string} [opts.prefix] localStorage key prefix (per game)
    * @param {number} [opts.version]
    */
-  constructor({ prefix = 'wick', version = SAVE_VERSION } = {}) {
+  constructor({ prefix = 'lamplight', version = SAVE_VERSION } = {}) {
     this.prefix = prefix;
     this.version = version;
     /** @type {Map<string, { save: () => any, load: (data: any) => void }>} */

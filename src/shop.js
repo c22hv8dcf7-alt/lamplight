@@ -37,7 +37,7 @@ export class ShopPanel {
     this.onRefuse = onRefuse;
     this.open = false;
     this.el = document.createElement('div');
-    this.el.className = 'wick-shop';
+    this.el.className = 'lamplight-shop';
     this.el.style.cssText =
       'position:absolute;right:12px;top:64px;width:min(88vw,300px);z-index:7;' +
       'background:rgba(12,14,22,.96);border:1px solid #3a4157;border-radius:12px;color:#dfe6f2;' +

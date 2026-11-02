@@ -1,6 +1,6 @@
 /**
  * @module chronicle
- * The Chronicle: a dated, categorised event log — the memory of every Wick
+ * The Chronicle: a dated, categorised event log — the memory of every Lamplight
  * world. World Simulator's wars and plagues, the Reef's bleaching warnings
  * and the Lighthouse's keeper's log are all this one idea: when something
  * happens, it is written down with its date, and the player can scroll it.
@@ -62,7 +62,7 @@ export class Chronicle {
    */
   renderPanel({ title = 'Chronicle', height = '180px' } = {}) {
     const wrap = document.createElement('div');
-    wrap.className = 'wick-chronicle';
+    wrap.className = 'lamplight-chronicle';
     wrap.style.cssText =
       'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;color:#dfe6f2;' +
       'font:13px/1.45 system-ui,sans-serif;padding:8px 10px;box-sizing:border-box;';
@@ -70,7 +70,7 @@ export class Chronicle {
     head.textContent = title;
     head.style.cssText = 'font-weight:700;letter-spacing:.06em;font-size:11px;color:#f5c56b;margin-bottom:6px;';
     const body = document.createElement('div');
-    body.className = 'wick-chronicle-body';
+    body.className = 'lamplight-chronicle-body';
     body.style.cssText = `overflow-y:auto;max-height:${height};padding-right:4px;`;
     wrap.appendChild(head);
     wrap.appendChild(body);

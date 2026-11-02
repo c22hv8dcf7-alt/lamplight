@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Wick's zero-dependency bundler.
+ * Lamplight's zero-dependency bundler.
  *
- * Resolves the small, disciplined subset of ES modules that Wick code uses:
+ * Resolves the small, disciplined subset of ES modules that Lamplight code uses:
  *   import { a, b as c } from './x.js'      named imports
  *   import './x.js'                          side-effect imports
  *   export function/class/const/let NAME     named declaration exports
@@ -28,7 +28,7 @@ if (!entryArg || !outArg) {
 }
 const asHtml = flags.includes('--html');
 const titleIdx = flags.indexOf('--title');
-const title = titleIdx >= 0 ? flags[titleIdx + 1] : 'Wick Game';
+const title = titleIdx >= 0 ? flags[titleIdx + 1] : 'Lamplight Game';
 
 const root = process.cwd();
 const keyOf = (abs) => path.relative(root, abs).split(path.sep).join('/');
@@ -107,7 +107,7 @@ function transform(absPath) {
     },
   );
   if (/^\s*export\s+default/m.test(src) || /import\s*\*/.test(src)) {
-    throw new Error(`${key}: default exports and namespace imports are not supported by the Wick bundler`);
+    throw new Error(`${key}: default exports and namespace imports are not supported by the Lamplight bundler`);
   }
 
   const assigns = exported
@@ -155,7 +155,7 @@ const __cache = Object.create(null);
 function __define(p, fn) { __modules[p] = fn; }
 function __require(p) {
   if (__cache[p]) return __cache[p].exports;
-  if (!__modules[p]) throw new Error('wick bundle: module not found: ' + p);
+  if (!__modules[p]) throw new Error('lamplight bundle: module not found: ' + p);
   const m = { exports: {} };
   __cache[p] = m;
   __modules[p](m.exports, __require);
@@ -177,12 +177,12 @@ if (asHtml) {
 <style>
   html, body { margin: 0; padding: 0; background: #10131a; height: 100%; }
   body { display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; }
-  #wick-root { position: relative; width: min(100vw, 1280px); }
+  #lamplight-root { position: relative; width: min(100vw, 1280px); }
   canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; }
 </style>
 </head>
 <body>
-<div id="wick-root"></div>
+<div id="lamplight-root"></div>
 <script>
 ${runtime}
 </script>

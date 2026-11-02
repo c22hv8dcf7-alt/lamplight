@@ -86,7 +86,7 @@ export class Input {
  */
 export function touchButtons(input, defs) {
   const bar = document.createElement('div');
-  bar.className = 'wick-touch';
+  bar.className = 'lamplight-touch';
   bar.style.cssText =
     'display:flex;gap:8px;justify-content:space-between;padding:8px;box-sizing:border-box;' +
     'pointer-events:none;';

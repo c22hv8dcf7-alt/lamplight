@@ -1,14 +1,14 @@
 /**
- * Wick Demo — Lantern Lane.
+ * Lamplight Demo — Lantern Lane.
  *
  * A tiny proof scene, not a game: a keeper walks a lane with her cat, talks
  * to Mabel at the market stall, buys an apple with Harbor coin, shakes the
  * apple tree (hold-to-work), and lives through days, seasons and weather —
- * while the Chronicle writes it all down. Every Wick module is exercised:
+ * while the Chronicle writes it all down. Every Lamplight module is exercised:
  * core loop, renderer, sprites, clock, weather, chronicle, entities, input
  * (+ touch + channels), ui kit, economy, shop, save, audio.
  *
- * A debug hook is exposed at window.WICK_DEMO so tools/drive-demo.mjs can
+ * A debug hook is exposed at window.LAMPLIGHT_DEMO so tools/drive-demo.mjs can
  * verify behaviour headlessly. Real games would not ship this.
  */
 import { createLoop } from '../../src/core.js';
@@ -74,7 +74,7 @@ const CAT = [
 ];
 
 /* --------------------------------- setup --------------------------------- */
-const root = document.getElementById('wick-root');
+const root = document.getElementById('lamplight-root');
 const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 540;
@@ -172,7 +172,7 @@ root.appendChild(touchButtons(input, [
 ]));
 
 /* ---------------------------------- save ---------------------------------- */
-const saves = new SaveSystem({ prefix: 'wick-demo' });
+const saves = new SaveSystem({ prefix: 'lamplight-demo' });
 let talked = false;
 saves.register('clock', { save: () => clock.snapshot(), load: (d) => clock.restore(d) });
 saves.register('wallet', { save: () => wallet.snapshot(), load: (d) => wallet.restore(d) });
@@ -387,4 +387,4 @@ const loop = createLoop({
 });
 
 /* ------------------------------ debug hook ------------------------------- */
-window.WICK_DEMO = { player, cat, clock, weather, chronicle, wallet, stock, shop, saves, loop, world };
+window.LAMPLIGHT_DEMO = { player, cat, clock, weather, chronicle, wallet, stock, shop, saves, loop, world };

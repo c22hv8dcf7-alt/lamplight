@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Wick Demo — Lantern Lane</title>
+<title>Lamplight Demo — Lantern Lane</title>
 <style>
   html, body { margin: 0; padding: 0; background: #10131a; height: 100%; }
   body { display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; }
-  #wick-root { position: relative; width: min(100vw, 1280px); }
+  #lamplight-root { position: relative; width: min(100vw, 1280px); }
   canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #000; }
 </style>
 </head>
 <body>
-<div id="wick-root"></div>
+<div id="lamplight-root"></div>
 <script>
 'use strict';
 const __modules = Object.create(null);
@@ -20,7 +20,7 @@ const __cache = Object.create(null);
 function __define(p, fn) { __modules[p] = fn; }
 function __require(p) {
   if (__cache[p]) return __cache[p].exports;
-  if (!__modules[p]) throw new Error('wick bundle: module not found: ' + p);
+  if (!__modules[p]) throw new Error('lamplight bundle: module not found: ' + p);
   const m = { exports: {} };
   __cache[p] = m;
   __modules[p](m.exports, __require);
@@ -29,16 +29,16 @@ function __require(p) {
 __define("demo/src/main.js", function (__exports, __require) {
 
 /**
- * Wick Demo — Lantern Lane.
+ * Lamplight Demo — Lantern Lane.
  *
  * A tiny proof scene, not a game: a keeper walks a lane with her cat, talks
  * to Mabel at the market stall, buys an apple with Harbor coin, shakes the
  * apple tree (hold-to-work), and lives through days, seasons and weather —
- * while the Chronicle writes it all down. Every Wick module is exercised:
+ * while the Chronicle writes it all down. Every Lamplight module is exercised:
  * core loop, renderer, sprites, clock, weather, chronicle, entities, input
  * (+ touch + channels), ui kit, economy, shop, save, audio.
  *
- * A debug hook is exposed at window.WICK_DEMO so tools/drive-demo.mjs can
+ * A debug hook is exposed at window.LAMPLIGHT_DEMO so tools/drive-demo.mjs can
  * verify behaviour headlessly. Real games would not ship this.
  */
 const { createLoop } = __require("src/core.js");
@@ -104,7 +104,7 @@ const CAT = [
 ];
 
 /* --------------------------------- setup --------------------------------- */
-const root = document.getElementById('wick-root');
+const root = document.getElementById('lamplight-root');
 const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 540;
@@ -202,7 +202,7 @@ root.appendChild(touchButtons(input, [
 ]));
 
 /* ---------------------------------- save ---------------------------------- */
-const saves = new SaveSystem({ prefix: 'wick-demo' });
+const saves = new SaveSystem({ prefix: 'lamplight-demo' });
 let talked = false;
 saves.register('clock', { save: () => clock.snapshot(), load: (d) => clock.restore(d) });
 saves.register('wallet', { save: () => wallet.snapshot(), load: (d) => wallet.restore(d) });
@@ -417,7 +417,7 @@ const loop = createLoop({
 });
 
 /* ------------------------------ debug hook ------------------------------- */
-window.WICK_DEMO = { player, cat, clock, weather, chronicle, wallet, stock, shop, saves, loop, world };
+window.LAMPLIGHT_DEMO = { player, cat, clock, weather, chronicle, wallet, stock, shop, saves, loop, world };
 
 
 });
@@ -997,7 +997,7 @@ __define("src/chronicle.js", function (__exports, __require) {
 
 /**
  * @module chronicle
- * The Chronicle: a dated, categorised event log — the memory of every Wick
+ * The Chronicle: a dated, categorised event log — the memory of every Lamplight
  * world. World Simulator's wars and plagues, the Reef's bleaching warnings
  * and the Lighthouse's keeper's log are all this one idea: when something
  * happens, it is written down with its date, and the player can scroll it.
@@ -1059,7 +1059,7 @@ class Chronicle {
    */
   renderPanel({ title = 'Chronicle', height = '180px' } = {}) {
     const wrap = document.createElement('div');
-    wrap.className = 'wick-chronicle';
+    wrap.className = 'lamplight-chronicle';
     wrap.style.cssText =
       'background:rgba(12,14,22,.92);border:1px solid #3a4157;border-radius:10px;color:#dfe6f2;' +
       'font:13px/1.45 system-ui,sans-serif;padding:8px 10px;box-sizing:border-box;';
@@ -1067,7 +1067,7 @@ class Chronicle {
     head.textContent = title;
     head.style.cssText = 'font-weight:700;letter-spacing:.06em;font-size:11px;color:#f5c56b;margin-bottom:6px;';
     const body = document.createElement('div');
-    body.className = 'wick-chronicle-body';
+    body.className = 'lamplight-chronicle-body';
     body.style.cssText = `overflow-y:auto;max-height:${height};padding-right:4px;`;
     wrap.appendChild(head);
     wrap.appendChild(body);
@@ -1316,7 +1316,7 @@ class Input {
  */
 function touchButtons(input, defs) {
   const bar = document.createElement('div');
-  bar.className = 'wick-touch';
+  bar.className = 'lamplight-touch';
   bar.style.cssText =
     'display:flex;gap:8px;justify-content:space-between;padding:8px;box-sizing:border-box;' +
     'pointer-events:none;';
@@ -1395,7 +1395,7 @@ __define("src/ui.js", function (__exports, __require) {
 
 /**
  * @module ui
- * The HUD kit every Wick game shares: top chips (counters), gauges (bars),
+ * The HUD kit every Lamplight game shares: top chips (counters), gauges (bars),
  * a contextual prompt line, a dialogue box, and an objectives list.
  *
  * All DOM, all inline-styled — no CSS file to ship, no framework — matching
@@ -1411,7 +1411,7 @@ class Chips {
   /** @param {Array<{ key: string, label: string, value: string|number }>} defs */
   constructor(defs) {
     this.el = document.createElement('div');
-    this.el.className = 'wick-chips';
+    this.el.className = 'lamplight-chips';
     this.el.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
     /** @type {Map<string, HTMLSpanElement>} */
     this._values = new Map();
@@ -1490,7 +1490,7 @@ class GaugePanel {
 class Prompt {
   constructor() {
     this.el = document.createElement('div');
-    this.el.className = 'wick-prompt';
+    this.el.className = 'lamplight-prompt';
     this.el.style.cssText =
       'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);' + PANEL + 'display:none;z-index:5;';
   }
@@ -1681,7 +1681,7 @@ class ShopPanel {
     this.onRefuse = onRefuse;
     this.open = false;
     this.el = document.createElement('div');
-    this.el.className = 'wick-shop';
+    this.el.className = 'lamplight-shop';
     this.el.style.cssText =
       'position:absolute;right:12px;top:64px;width:min(88vw,300px);z-index:7;' +
       'background:rgba(12,14,22,.96);border:1px solid #3a4157;border-radius:12px;color:#dfe6f2;' +
@@ -1803,7 +1803,7 @@ class SaveSystem {
    * @param {string} [opts.prefix] localStorage key prefix (per game)
    * @param {number} [opts.version]
    */
-  constructor({ prefix = 'wick', version = SAVE_VERSION } = {}) {
+  constructor({ prefix = 'lamplight', version = SAVE_VERSION } = {}) {
     this.prefix = prefix;
     this.version = version;
     /** @type {Map<string, { save: () => any, load: (data: any) => void }>} */

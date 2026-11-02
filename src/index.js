@@ -1,5 +1,5 @@
 /**
- * Wick Engine — public entry point.
+ * Lamplight Engine — public entry point.
  * Every module is independent; games may import the whole surface from here
  * or reach for single modules (the bundler only ships what the graph uses...
  * in v0.1 it ships what you import — import from here for the full kit).

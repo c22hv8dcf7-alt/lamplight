@@ -1,14 +1,14 @@
-# Wick Engine
+# Lamplight Engine
 
 *A small, open-source 2D web game engine for cozy pixel games and living simulations.*
 
-Wick is the reusable machinery underneath Porch Light's single-file HTML5
+Lamplight is the reusable machinery underneath Porch Light's single-file HTML5
 games — [World Simulator](https://porchlight-developer.itch.io/world-simulator),
 [The Living Reef](https://porchlight-developer.itch.io/the-living-reef) and
 [The Last Lighthouse](https://porchlight-developer.itch.io/the-last-lighthouse)
 were each built by hand-rolling the same systems: a fixed-timestep loop, a
 day/night clock, weather, a dated chronicle, wandering creatures, hold-to-work
-chores, a coin-and-shop economy, HUD panels, saves. Wick codifies that pattern
+chores, a coin-and-shop economy, HUD panels, saves. Lamplight codifies that pattern
 once, so the next game starts at the interesting part.
 
 - **Zero runtime dependencies.** Plain JavaScript (ES2022) + JSDoc types.
@@ -16,6 +16,8 @@ once, so the next game starts at the interesting part.
   game + the engine into one self-contained `.html` that runs from `file://`
   and uploads straight to itch.io.
 - **MIT licensed.** Copyright © Lee Vitaly Wyszynski.
+- **Name:** launched as *Wick* on 2026-11-02 and renamed to **Lamplight**
+  the same day (the v0.1.0 release notes keep the launch name).
 
 ## The Law
 
@@ -29,7 +31,7 @@ extracted. The roadmap (`ROADMAP.md`) lists candidates as
 
 ## Language choice
 
-Wick is vanilla JS with JSDoc annotations rather than TypeScript: the whole
+Lamplight is vanilla JS with JSDoc annotations rather than TypeScript: the whole
 toolchain (engine, bundler, demo, verification) runs with nothing but Node —
 no compiler, no packages to install, nothing that can break offline or rot.
 JSDoc typedefs keep editor type-checking and autocomplete working. If a
@@ -38,11 +40,11 @@ mechanically.
 
 ## Quickstart
 
-A complete (tiny) Wick game in about twenty lines — a canvas, a clock, a
+A complete (tiny) Lamplight game in about twenty lines — a canvas, a clock, a
 chronicle, and something that moves:
 
 ```js
-import { createLoop, Renderer, WorldClock, Chronicle, drawSprite } from './wick.js';
+import { createLoop, Renderer, WorldClock, Chronicle, drawSprite } from './lamplight.js';
 
 const canvas = document.createElement('canvas');
 canvas.width = 960; canvas.height = 540;
@@ -70,7 +72,7 @@ createLoop({
 Then bundle your game into one file:
 
 ```sh
-npm run build   # engine alone  -> dist/wick.js
+npm run build   # engine alone  -> dist/lamplight.js
 npm run demo    # the demo game -> demo/dist/lantern-lane.html (single file)
 ```
 
@@ -115,12 +117,12 @@ v0.1. Full record: `VERIFICATION.md`.
 
 ## Catalogue & tool bridges
 
-Wick stays small; big tools stay external. Wick's job is to accept their
+Lamplight stays small; big tools stay external. Lamplight's job is to accept their
 output through thin bridge modules — art from Krita or Aseprite-style
 spritesheet exports, maps from Tiled — built only when a real game needs one
 (see `TOOLING_AND_CATALOGUE.md`). The catalogue in `catalogue/` is the
-registry: `games.json` lists every game built on Wick, and `tools.json`
-lists each supported external tool, the format Wick accepts, and the game
+registry: `games.json` lists every game built on Lamplight, and `tools.json`
+lists each supported external tool, the format Lamplight accepts, and the game
 that proved the bridge.
 
 ## Repository layout
@@ -129,7 +131,7 @@ that proved the bridge.
 src/          the engine (one file per module, header comment in each)
 demo/         Lantern Lane proof game (src/, dist/ single-file build, screenshots/)
 tools/        bundle.mjs (export tool) · drive-demo.mjs (verification drive)
-dist/         wick.js — the bundled engine
+dist/         lamplight.js — the bundled engine
 catalogue/    games.json + tools.json — the registries described above
 ROADMAP.md    extraction-pending candidates
 ```

@@ -15,7 +15,7 @@ export class SaveSystem {
    * @param {string} [opts.prefix] localStorage key prefix (per game)
    * @param {number} [opts.version]
    */
-  constructor({ prefix = 'wick', version = SAVE_VERSION } = {}) {
+  constructor({ prefix = 'lamplight', version = SAVE_VERSION } = {}) {
     this.prefix = prefix;
     this.version = version;
     /** @type {Map<string, { save: () => any, load: (data: any) => void }>} */

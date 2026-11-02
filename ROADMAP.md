@@ -1,4 +1,4 @@
-# Wick Roadmap
+# Lamplight Roadmap
 
 Per the Law, nothing here is a promise. Each item is a candidate that becomes
 real only when a shipped (or shipping) Porch Light game needs it, gets built
@@ -7,7 +7,7 @@ inside that game first, and is then extracted into the engine.
 ## v0.2 candidates (extraction-pending)
 
 - **Tilemaps** — The Last Lighthouse's point/village/lane were hand-drawn
-  rects and sprites per scene. The first Wick game with a genuinely tiled
+  rects and sprites per scene. The first Lamplight game with a genuinely tiled
   world (a village you can walk *through*, not past) will need a tilemap
   layer + collision grid; built there, extracted here.
 - **Pathfinding** — Lighthouse villagers stroll fixed streets today; World
@@ -20,6 +20,6 @@ inside that game first, and is then extracted into the engine.
 
 ## Explicitly not planned
 
-- 3D, physics engines, networking/multiplayer, an editor GUI, ECS. Wick is a
+- 3D, physics engines, networking/multiplayer, an editor GUI, ECS. Lamplight is a
   2D single-file web engine for cozy games and living sims; if a future game
   needs one of these, that game is probably a Godot game instead.

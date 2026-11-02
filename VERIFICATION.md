@@ -1,18 +1,18 @@
-# Verification — Wick v0.1
+# Verification — Lamplight v0.1
 
 **How:** `npm run demo` builds the single-file demo
 (`demo/dist/lantern-lane.html`, 70,682 bytes), then
 `node tools/drive-demo.mjs` plays it in headless Chromium (Playwright,
-borrowed from the workshop install — Wick itself has zero dependencies).
+borrowed from the workshop install — Lamplight itself has zero dependencies).
 The drive uses real keyboard holds and real DOM clicks against the exported
 file at `file://`, and asserts on live game state via the demo's
-`window.WICK_DEMO` debug hook.
+`window.LAMPLIGHT_DEMO` debug hook.
 
 **Result: 13/13 checks passed, zero console errors, zero page errors.**
 
 | # | Check | Evidence |
 |---|---|---|
-| 1 | Loads with a live demo hook | `window.WICK_DEMO` present |
+| 1 | Loads with a live demo hook | `window.LAMPLIGHT_DEMO` present |
 | 2 | Zero console errors on load | none captured |
 | 3 | Keeper walks right on held ArrowRight | x 140 → 280 in 0.9 s |
 | 4 | Keeper walks back left on held ArrowLeft | x 280 → 220 in 0.4 s |
@@ -37,7 +37,8 @@ file at `file://`, and asserts on live game state via the demo's
   showing purchase + day-rollover + wages entries in order.
 
 **Also verified:** `npm run build` bundles the engine alone
-(`dist/wick.js`, 56,775 bytes, 14 modules) with no errors.
+(`dist/lamplight.js`, 56,830 bytes, 14 modules) with no errors.
+Re-run after the Wick → Lamplight rename (2026-11-02): 13/13 again, unchanged.
 
 **Found and fixed during verification:** the demo's sun/moon orbit used
 canvas-positive y, putting the sun *below* the horizon at noon (invisible in

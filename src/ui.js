@@ -1,6 +1,6 @@
 /**
  * @module ui
- * The HUD kit every Wick game shares: top chips (counters), gauges (bars),
+ * The HUD kit every Lamplight game shares: top chips (counters), gauges (bars),
  * a contextual prompt line, a dialogue box, and an objectives list.
  *
  * All DOM, all inline-styled — no CSS file to ship, no framework — matching
@@ -16,7 +16,7 @@ export class Chips {
   /** @param {Array<{ key: string, label: string, value: string|number }>} defs */
   constructor(defs) {
     this.el = document.createElement('div');
-    this.el.className = 'wick-chips';
+    this.el.className = 'lamplight-chips';
     this.el.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
     /** @type {Map<string, HTMLSpanElement>} */
     this._values = new Map();
@@ -95,7 +95,7 @@ export class GaugePanel {
 export class Prompt {
   constructor() {
     this.el = document.createElement('div');
-    this.el.className = 'wick-prompt';
+    this.el.className = 'lamplight-prompt';
     this.el.style.cssText =
       'position:absolute;left:50%;bottom:14px;transform:translateX(-50%);' + PANEL + 'display:none;z-index:5;';
   }
